@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>蔬果叠叠乐</title>
+<style>
+  :root {
+    --bg: #0E4A4F;        /* 背景：深青色 */
+    --board: #16636A;     /* 牌桌 */
+    --face: #FFF7E6;      /* 牌面 */
+    --edge: #C8A876;      /* 牌的厚度 */
+    --tray: #6B3F22;      /* 下方卡槽：木头色 */
+    --tray-cell: #8A5530;
+    --gold: #FFC93C;
+    --text: #F3EFE4;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex;
+    justify-content: center;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .app { width: 100%; max-width: 440px; padding: 14px 12px 24px; }
+ 
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+  h1 { font-size: 26px; margin: 0; font-weight: 900; color: var(--gold); letter-spacing: 1px; }
+  .level { font-size: 15px; opacity: .85; }
+  .left-count { font-size: 13px; opacity: .7; margin-top: 2px; text-align: right; }
+ 
+  /* ===== 牌桌 ===== */
+  .board {
+    position: relative;
+    margin: 0 auto;
+    background: var(--board);
+    border-radius: 10px;
+  }
+  .tile {
+    position: absolute;
+    border-radius: 7px;
+    background: var(--face);
+    border: 1px solid #d9c49c;
+    box-shadow: 0 4px 0 var(--edge), 0 5px 4px rgba(0,0,0,.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform .15s, opacity .2s, filter .2s;
+  }
+  .tile.covered { filter: brightness(.5) saturate(.6); cursor: default; }
+  .tile.gone { opacity: 0; transform: scale(.4); pointer-events: none; }
+  .tile:not(.covered):active { transform: translateY(2px); }
+ 
+  /* ===== 暂存区（"移出"道具用） ===== */
+  .temp { display: flex; gap: 6px; justify-content: center; min-height: 0; margin: 10px 0 0; }
+  .temp .tile { position: relative; }
+ 
+  /* ===== 卡槽 ===== */
+  .tray {
+    margin: 14px auto 0;
+    background: var(--tray);
+    border-radius: 10px;
+    padding: 8px;
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 5px;
+    box-shadow: inset 0 3px 6px rgba(0,0,0,.35);
+  }
+  .cell {
+    aspect-ratio: 1 / 1.08;
+    background: var(--tray-cell);
+    border-radius: 6px;
+    position: relative;
+  }
+  .cell .tile { position: absolute; inset: 0; cursor: default; }
+  .cell .tile.pop { animation: pop .25s; }
+  .cell .tile.clear { animation: clear .28s forwards; }
+  @keyframes pop { from { transform: scale(.5); } to { transform: scale(1); } }
+  @keyframes clear { to { transform: scale(1.3); opacity: 0; } }
+  .tray.warn { box-shadow: inset 0 3px 6px rgba(0,0,0,.35), 0 0 0 3px #ff5a4e; }
+ 
+  /* ===== 道具 ===== */
+  .tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+  button {
+    font: inherit;
+    font-size: 16px;
+    font-weight: 700;
+    padding: 12px 6px;
+    border: none;
+    border-radius: 8px;
+    background: var(--gold);
+    color: #3a2410;
+    box-shadow: 0 4px 0 #b8861b;
+    cursor: pointer;
+  }
+  button:active { transform: translateY(3px); box-shadow: 0 1px 0 #b8861b; }
+  button:disabled { background: #6d7f80; color: #c9d2d2; box-shadow: 0 4px 0 #4b5a5b; cursor: default; }
+  button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+  .tip { font-size: 13px; opacity: .7; text-align: center; margin-top: 12px; line-height: 1.6; }
+ 
+  /* ===== 结果弹窗 ===== */
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(5, 30, 32, .78);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .overlay.hidden { display: none; }
+  .dialog {
+    background: var(--face);
+    color: #3a2410;
+    border-radius: 12px;
+    padding: 26px 22px 20px;
+    width: 100%; max-width: 320px;
+    text-align: center;
+  }
+  .dialog h2 { font-size: 30px; margin: 0 0 6px; }
+  .dialog p { margin: 0 0 18px; line-height: 1.6; }
+  .dialog button { width: 100%; }
+ 
+  @media (prefers-reduced-motion: reduce) {
+    .tile, .cell .tile.pop, .cell .tile.clear { transition: none; animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <h1>蔬果叠叠乐</h1>
+      <div class="level" id="level-text"></div>
+    </div>
+    <div class="left-count" id="left-count"></div>
+  </header>
+ 
+  <div class="board" id="board"></div>
+  <div class="temp" id="temp"></div>
+  <div class="tray" id="tray"></div>
+ 
+  <div class="tools">
+    <button id="btn-out">移出</button>
+    <button id="btn-undo">撤回</button>
+    <button id="btn-shuffle">洗牌</button>
+  </div>
+  <p class="tip">点亮着的牌放进下方卡槽，凑齐 3 张相同的就消除。<br>卡槽放满 7 张就输了。每个道具每关只能用一次。</p>
+</div>
+ 
+<div class="overlay hidden" id="overlay">
+  <div class="dialog">
+    <h2 id="dlg-title"></h2>
+    <p id="dlg-text"></p>
+    <button id="dlg-btn"></button>
+  </div>
+</div>
+ 
+<script>
+// ================= 配置 =================
+const ICONS = ["🥕", "🌽", "🍄", "🍅", "🥦", "🍆", "🌶️", "🍋", "🍇", "🍓", "🥥", "🍐",
+               "🍑", "🥝", "🥔", "🧄"];  // 共 16 种图案
+const COLS = 7;          // 牌桌宽 7 格
+const ROWS = 7;          // 牌桌高 7 格
+const SLOT_SIZE = 7;     // 卡槽能放 7 张
+ 
+// 每关设置：
+//   types  用几种图案        layers 每层放几张牌      piles 下方两堆各几张
+//   spread 牌的分散程度，越小牌越往一起堆，遮挡越多
+//   hold   保证有解的那条路线上，卡槽里最多同时有几张（越大越难，最大 6）
+//   mix    图案打散的程度（0~1），越大越难凑齐
+// 总牌数必须是 3 的倍数，而且每种图案的数量也是 3 的倍数
+const LEVELS = [
+  { types: 3,  layers: [16, 12, 8],                    piles: 0,  spread: 1.5, hold: 3, mix: 0.3  },  // 36 张，只有 3 种图案，怎么点都不会输
+  { types: 12, layers: [22, 18, 16, 14, 10, 8],        piles: 10, spread: 1.2, hold: 5, mix: 0.5  },  // 108 张
+  { types: 14, layers: [24, 20, 18, 14, 12, 10, 8],    piles: 10, spread: 1.0, hold: 6, mix: 0.6  },  // 126 张
+  { types: 16, layers: [25, 22, 20, 16, 16, 12, 9, 4], piles: 10, spread: 0.8, hold: 6, mix: 0.75 },  // 144 张
+];
+ 
+// 每关过关后的提示语
+const LEVELS_TIPS = [
+  "第 1 关只是热身，第 2 关才是真正的挑战。",
+  "厉害！第 3 关牌更多、叠得更深。",
+  "只剩最后一关了，16 种图案，8 层牌，祝你好运。",
+];
+ 
+// ================= 游戏状态 =================
+let levelIndex = 0;
+let tiles = [];       // 所有牌：{ id, type, x, y, z, gone, el }
+let slot = [];        // 卡槽里的牌
+let temp = [];        // 被"移出"到暂存区的牌
+let lastMove = null;  // 最近一步，用于撤回
+let used = {};        // 道具是否已用
+let busy = false;     // 消除动画进行中时，暂停点击
+let unit = 50;        // 一格的像素大小
+ 
+const $ = (id) => document.getElementById(id);
+ 
+// 打乱数组（洗牌算法）
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+ 
+// ================= 生成关卡 =================
+function buildLevel() {
+  const cfg = LEVELS[levelIndex];
+  tiles = [];
+  slot = [];
+  temp = [];
+  lastMove = null;
+  used = { out: false, undo: false, shuffle: false };
+  busy = false;
+ 
+  // 1. 生成位置（每次随机，而且叠得更密）
+  tiles = generatePositions(cfg);
+  // 2. 分配图案（保证一定有解，难度由这一关的参数控制）
+  assignTypes(tiles, cfg);
+  tiles.forEach((t, i) => { t.id = i; t.gone = false; });
+ 
+  // 检查关卡设置是否正确（牌数不能平均分给每种图案时会出错）
+  if (tiles.length % (cfg.types * 3) !== 0) {
+    console.error(`第 ${levelIndex + 1} 关设置有误：实际 ${tiles.length} 张牌，无法平均分给 ${cfg.types} 种图案且每种是 3 的倍数`);
+  }
+ 
+  // 3. 创建牌的 HTML 元素
+  const board = $("board");
+  board.innerHTML = "";
+  const boardW = Math.min(window.innerWidth - 24, 416);
+  unit = boardW / COLS;
+  const rowsTotal = ROWS + (cfg.piles ? 1.5 : 0);
+  board.style.width = boardW + "px";
+  board.style.height = rowsTotal * unit + 8 + "px";
+ 
+  for (const t of tiles) {
+    const el = makeTileEl(t.type);
+    el.style.left = t.x * unit + "px";
+    el.style.top = t.y * unit + "px";
+    el.style.zIndex = t.z;
+    el.addEventListener("click", () => pickFromBoard(t));
+    t.el = el;
+    board.appendChild(el);
+  }
+ 
+  $("level-text").textContent = `第 ${levelIndex + 1} / ${LEVELS.length} 关`;
+  render();
+}
+ 
+function makeTileEl(type) {
+  const el = document.createElement("div");
+  el.className = "tile";
+  el.style.width = unit * 0.94 + "px";
+  el.style.height = unit * 0.94 + "px";
+  el.style.fontSize = unit * 0.56 + "px";
+  el.textContent = ICONS[type];
+  return el;
+}
+ 
+// ================= 关卡生成 =================
+// 判断两张牌是否重叠（x、y 方向的距离都小于 1 格）
+function overlaps(a, b) {
+  return Math.abs(a.x - b.x) < 0.99 && Math.abs(a.y - b.y) < 0.99;
+}
+ 
+// 某一层、某种错位方式下，所有可以放牌的位置
+function spotsFor(off, margin) {
+  const spots = [];
+  for (let x = off[0]; x <= COLS - 1; x += 1) {
+    for (let y = off[1]; y <= ROWS - 1; y += 1) {
+      if (x >= margin && x <= COLS - 1 - margin && y >= margin && y <= ROWS - 1 - margin) {
+        spots.push({ x, y });
+      }
+    }
+  }
+  return spots;
+}
+ 
+// 第一步：生成牌的位置（每次都随机，但会刻意叠得更密）
+function generatePositions(cfg) {
+  const tiles = [];
+  let prevOff = null;
+  cfg.layers.forEach((count, z) => {
+    const margin = z * 0.25;
+    // 四种错位方式随机选一种，并且和下一层不同，保证上下层交错压住
+    const offsets = shuffle([[0, 0], [0.5, 0.5], [0.5, 0], [0, 0.5]]);
+    let spots = null, chosen = null;
+    for (const pass of [0, 1]) {
+      for (const off of offsets) {
+        if (pass === 0 && prevOff && off[0] === prevOff[0] && off[1] === prevOff[1]) continue;
+        const s = spotsFor(off, margin);
+        if (s.length >= count) { spots = s; chosen = off; break; }
+      }
+      if (spots) break;
+    }
+    // 给每个位置打分：压住的下层牌越多，分越高，再加一点随机
+    // 分高的位置优先放牌，这样牌会一层层堆在一起，遮挡更多
+    for (const p of spots) {
+      p.score = tiles.filter(t => overlaps(t, p)).length + Math.random() * cfg.spread;
+    }
+    spots.sort((a, b) => b.score - a.score);
+    spots.slice(0, count).forEach(p => tiles.push({ x: p.x, y: p.y, z }));
+    prevOff = chosen;
+  });
+ 
+  // 下方左右两堆
+  for (let i = 0; i < cfg.piles; i++) {
+    tiles.push({ x: 0.2 + i * 0.12, y: ROWS + 0.35, z: 100 + i });
+    tiles.push({ x: COLS - 1.2 - i * 0.12, y: ROWS + 0.35, z: 100 + i });
+  }
+  return tiles;
+}
+ 
+// 第二步：分配图案，保证这一局一定有解，并且难度由 hold 和 mix 控制
+// 做法：先随机模拟一遍"拿牌顺序"，再沿着这个顺序分配图案，
+//      让按这个顺序拿牌时卡槽里最多同时有 hold 张，永远不会爆
+function assignTypes(tiles, cfg) {
+  // 1. 模拟一个合法的拿牌顺序：每次从没被压住的牌里随机拿一张
+  const alive = tiles.slice();
+  const order = [];
+  while (alive.length > 0) {
+    const free = alive.filter(t => !alive.some(o => o.z > t.z && overlaps(o, t)));
+    const pick = free[Math.floor(Math.random() * free.length)];
+    order.push(pick);
+    alive.splice(alive.indexOf(pick), 1);
+  }
+ 
+  // 2. 每种图案有几组"三张"可以用
+  const perType = tiles.length / cfg.types;
+  const triplesLeft = [];
+  for (let t = 0; t < cfg.types; t++) triplesLeft.push(perType / 3);
+ 
+  // 3. 沿着拿牌顺序分配图案
+  const open = [];      // 卡槽里还没凑齐的组：{ type, count }
+  let inSlot = 0;       // 卡槽里现在有几张
+  order.forEach((tile, i) => {
+    const remaining = order.length - i - 1;
+    const needed = open.reduce((s, g) => s + (3 - g.count), 0);
+    const candidates = [];
+    for (let t = 0; t < cfg.types; t++) {
+      if (triplesLeft[t] > 0 && !open.some(g => g.type === t)) candidates.push(t);
+    }
+    // 能开新组的条件：有可用图案、卡槽不超过 hold 张、未凑齐的组少于 hold 个、剩下的牌够把所有组凑齐
+    const canOpen = candidates.length > 0 && inSlot + 1 <= cfg.hold &&
+                    open.length + 1 < cfg.hold && needed + 2 <= remaining;
+ 
+    if (open.length === 0 || (canOpen && Math.random() < cfg.mix)) {
+      // 开一个新组：这张牌是一种新图案
+      const type = candidates[Math.floor(Math.random() * candidates.length)];
+      triplesLeft[type]--;
+      open.push({ type, count: 1 });
+      tile.type = type;
+      tile.step = i;
+      inSlot++;
+    } else {
+      // 接着凑一个已有的组；卡槽快满时，优先凑已经有 2 张的组
+      let pool = open;
+      if (inSlot >= SLOT_SIZE - 1) pool = open.filter(g => g.count === 2);
+      const g = pool[Math.floor(Math.random() * pool.length)];
+      g.count++;
+      tile.type = g.type;
+      tile.step = i;
+      if (g.count === 3) {
+        open.splice(open.indexOf(g), 1);
+        inSlot -= 2;
+      } else {
+        inSlot++;
+      }
+    }
+  });
+}
+ 
+// ================= 判断一张牌是否被压住 =================
+// 只要有一张还在桌上、层数更高、并且和它有重叠的牌，它就被压住了
+function isCovered(t) {
+  return tiles.some(o => !o.gone && o.z > t.z && overlaps(o, t));
+}
+ 
+// ================= 点牌 =================
+function pickFromBoard(t) {
+  if (busy || t.gone || isCovered(t)) return;
+  t.gone = true;
+  addToSlot(t, "board");
+}
+ 
+function pickFromTemp(t) {
+  if (busy) return;
+  temp = temp.filter(x => x !== t);
+  addToSlot(t, "temp");
+}
+ 
+// 放进卡槽：插到同种图案的后面，让相同的挨在一起
+function addToSlot(t, from) {
+  let pos = slot.length;
+  for (let i = slot.length - 1; i >= 0; i--) {
+    if (slot[i].type === t.type) { pos = i + 1; break; }
+  }
+  slot.splice(pos, 0, t);
+  lastMove = { tile: t, from };
+  render(t);
+  checkMatch();
+}
+ 
+// 检查有没有凑齐 3 张
+function checkMatch() {
+  const counts = {};
+  for (const t of slot) counts[t.type] = (counts[t.type] || 0) + 1;
+  const matched = Object.keys(counts).find(k => counts[k] >= 3);
+ 
+  if (matched !== undefined) {
+    busy = true;
+    const type = Number(matched);
+    // 播放消除动画
+    document.querySelectorAll(`#tray .tile[data-type="${type}"]`).forEach(el => el.classList.add("clear"));
+    setTimeout(() => {
+      let removed = 0;
+      slot = slot.filter(t => {
+        if (t.type === type && removed < 3) { removed++; return false; }
+        return true;
+      });
+      lastMove = null;  // 消除之后不能撤回
+      busy = false;
+      render();
+      checkEnd();
+    }, 280);
+  } else {
+    checkEnd();
+  }
+}
+ 
+function checkEnd() {
+  const left = tiles.filter(t => !t.gone).length + temp.length + slot.length;
+  if (left === 0) {
+    if (levelIndex < LEVELS.length - 1) {
+      const msg = LEVELS_TIPS[levelIndex] || `第 ${levelIndex + 1} 关完成！`;
+      showDialog("过关！", msg, "进入下一关", () => {
+        levelIndex++;
+        buildLevel();
+      });
+    } else {
+      showDialog("全部通关！", "4 关全过，你是真正的高手！", "再玩一次", () => {
+        levelIndex = 0;
+        buildLevel();
+      });
+    }
+  } else if (slot.length >= SLOT_SIZE) {
+    showDialog("卡槽满了", `还剩 ${left} 张牌。换个顺序再试一次吧。`, "重新开始这一关", buildLevel);
+  }
+}
+ 
+// ================= 道具 =================
+// 移出：把卡槽前 3 张挪到上方暂存区，腾出位置
+$("btn-out").addEventListener("click", () => {
+  if (busy || used.out || slot.length === 0) return;
+  used.out = true;
+  temp = slot.splice(0, 3);
+  lastMove = null;
+  render();
+});
+ 
+// 撤回：把刚放进卡槽的那张牌放回原处
+$("btn-undo").addEventListener("click", () => {
+  if (busy || used.undo || !lastMove) return;
+  used.undo = true;
+  const t = lastMove.tile;
+  slot = slot.filter(x => x !== t);
+  if (lastMove.from === "board") t.gone = false;
+  else temp.push(t);
+  lastMove = null;
+  render();
+});
+ 
+// 洗牌：把桌上剩下的牌的图案重新打乱
+$("btn-shuffle").addEventListener("click", () => {
+  if (busy || used.shuffle) return;
+  used.shuffle = true;
+  const rest = tiles.filter(t => !t.gone);
+  const types = shuffle(rest.map(t => t.type));
+  rest.forEach((t, i) => {
+    t.type = types[i];
+    t.el.textContent = ICONS[t.type];
+  });
+  lastMove = null;
+  render();
+});
+ 
+// ================= 画面刷新 =================
+function render(justAdded) {
+  // 牌桌
+  for (const t of tiles) {
+    t.el.classList.toggle("gone", t.gone);
+    t.el.classList.toggle("covered", !t.gone && isCovered(t));
+  }
+ 
+  // 暂存区
+  const tempBox = $("temp");
+  tempBox.innerHTML = "";
+  for (const t of temp) {
+    const el = makeTileEl(t.type);
+    el.addEventListener("click", () => pickFromTemp(t));
+    tempBox.appendChild(el);
+  }
+ 
+  // 卡槽
+  const tray = $("tray");
+  tray.innerHTML = "";
+  for (let i = 0; i < SLOT_SIZE; i++) {
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    const t = slot[i];
+    if (t) {
+      const el = document.createElement("div");
+      el.className = "tile" + (t === justAdded ? " pop" : "");
+      el.dataset.type = t.type;
+      el.style.fontSize = unit * 0.5 + "px";
+      el.textContent = ICONS[t.type];
+      cell.appendChild(el);
+    }
+    tray.appendChild(cell);
+  }
+  tray.classList.toggle("warn", slot.length >= SLOT_SIZE - 1);
+ 
+  // 道具按钮
+  $("btn-out").disabled = used.out || slot.length === 0;
+  $("btn-undo").disabled = used.undo || !lastMove;
+  $("btn-shuffle").disabled = used.shuffle;
+ 
+  const left = tiles.filter(t => !t.gone).length;
+  $("left-count").textContent = `桌上还剩 ${left} 张`;
+}
+ 
+// ================= 弹窗 =================
+function showDialog(title, text, btnText, onClick) {
+  $("dlg-title").textContent = title;
+  $("dlg-text").textContent = text;
+  $("dlg-btn").textContent = btnText;
+  $("dlg-btn").onclick = () => {
+    $("overlay").classList.add("hidden");
+    onClick();
+  };
+  $("overlay").classList.remove("hidden");
+}
+ 
+buildLevel();
+</script>
+</body>
+</html>
